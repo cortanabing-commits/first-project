@@ -14,7 +14,7 @@ from pathlib import Path
 from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, Cm, RGBColor
@@ -22,18 +22,26 @@ from docx.shared import Pt, Cm, RGBColor
 OUT = Path(__file__).parent
 
 THEME = {
-    "primary": "16325C",   # deep navy: cover, heading bars, table headers
-    "secondary": "00A19A", # teal: sub-headings, rules, icons
-    "accent": "F2A900",    # amber: placeholders, highlights
-    "tint": "E6F5F4",      # pale teal: callout boxes, zebra rows
-    "warn_tint": "FFF4D6", # pale amber: "important" callouts
+    # Taken from the IWS logo and tax invoice template
+    "primary": "1E3A5F",      # IWS navy: titles, heading bars, table headers
+    "secondary": "E07A2E",    # IWS orange: section numbers, bullets, top bar
+    "accent": "E07A2E",
+    "orange_text": "C07034",  # darker orange for small text (readable on white)
+    "tint": "F7F9FC",         # pale blue-grey: info callouts, zebra rows
+    "warn_tint": "FDF1E7",    # pale orange: "important" callouts, pills
+    "line": "E3E8EF",         # table borders
     "text": "1F2933",
     "muted": "5B6770",
-    "font": "Calibri",
+    "font": "Inter",
 }
 
 COMPANY = "Interactive Workforce Solutions"
 SHORT = "IWS"
+LOGO = Path(__file__).parent / "iws_logo.png"
+ADDRESS = "2 Butterleaf Way, North Kellyville NSW 2155"
+ABN = "15 373 790 652"
+EMAIL = "michael.sibanda@interactivews.com"
+PHONE = "+61 493 716 007"
 VERSION = "Version 1.0  |  October 2026"
 
 
@@ -63,7 +71,7 @@ def cell_margins(cell, top=120, bottom=120, left=160, right=160):
     tcPr.append(mar)
 
 
-def table_borders(table, color="D5DDE2", size=4, inside=True):
+def table_borders(table, color="E3E8EF", size=4, inside=True):
     tblPr = table._tbl.tblPr
     borders = OxmlElement("w:tblBorders")
     edges = ["top", "left", "bottom", "right"] + (["insideH", "insideV"] if inside else [])
@@ -163,12 +171,12 @@ def write_rich(par, text, size=10.5, color=None, bold=False, italic=False):
         elif tok.startswith("[") and tok.endswith("]"):
             r = par.add_run(tok)
             r.bold = True
-            r.font.color.rgb = rgb("8A5A00")
+            r.font.color.rgb = rgb("6B4E00")
             rPr = r._r.get_or_add_rPr()
             hl = OxmlElement("w:shd")
             hl.set(qn("w:val"), "clear")
             hl.set(qn("w:color"), "auto")
-            hl.set(qn("w:fill"), THEME["warn_tint"])
+            hl.set(qn("w:fill"), "FFF2A8")
             rPr.append(hl)
         else:
             r = par.add_run(tok)
@@ -198,7 +206,7 @@ class Pack:
         st.paragraph_format.space_after = Pt(6)
         st.paragraph_format.line_spacing = 1.15
         for name, size, color in (("Heading 1", 18, THEME["primary"]),
-                                  ("Heading 2", 13, THEME["secondary"])):
+                                  ("Heading 2", 13, THEME["orange_text"])):
             h = self.doc.styles[name]
             h.font.name = THEME["font"]
             h.element.rPr.rFonts.set(qn("w:ascii"), THEME["font"])
@@ -215,103 +223,155 @@ class Pack:
             setattr(sec, side, Cm(2.0))
         sec.top_margin, sec.bottom_margin = Cm(1.6), Cm(1.6)
 
-    # --- cover ---
+    # --- cover (mirrors the IWS tax invoice layout) ---
+    def brand_bar(self, container, height_pt=3):
+        t = container.add_table(rows=1, cols=2) if container is self.doc else container.add_table(1, 2, Cm(17))
+        no_borders(t)
+        a, b = t.rows[0].cells
+        shade(a, THEME["primary"])
+        shade(b, THEME["secondary"])
+        set_col_widths(t, [12.4, 4.6])
+        for c in (a, b):
+            cell_margins(c, 0, 0, 0, 0)
+            par = c.paragraphs[0]
+            par.paragraph_format.space_after = Pt(0)
+            par.paragraph_format.line_spacing = Pt(height_pt)
+            par.add_run("").font.size = Pt(1)
+        return t
+
     def cover(self, kicker, title, subtitle, bullets):
         d = self.doc
         sec = d.sections[0]
         sec.different_first_page_header_footer = True
+        self.brand_bar(d, 5)
 
-        t = d.add_table(rows=1, cols=1)
+        # logo + company block
+        t = d.add_table(rows=1, cols=2)
         no_borders(t)
-        c = t.rows[0].cells[0]
-        shade(c, THEME["primary"])
-        cell_margins(c, 500, 500, 500, 500)
-        set_col_widths(t, [17.0])
+        set_col_widths(t, [4.5, 12.5])
+        lc, rc = t.rows[0].cells
+        cell_margins(lc, 400, 0, 0, 0)
+        cell_margins(rc, 400, 0, 0, 0)
+        lc.paragraphs[0].add_run().add_picture(str(LOGO), width=Cm(3.4))
+        rp = rc.paragraphs[0]
+        rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        r = rp.add_run(COMPANY)
+        r.bold, r.font.size = True, Pt(15)
+        r.font.color.rgb = rgb(THEME["primary"])
+        for line in (ADDRESS, f"ABN {ABN}", f"{EMAIL}  ·  {PHONE}"):
+            q = rc.add_paragraph()
+            q.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            q.paragraph_format.space_after = Pt(1)
+            r = q.add_run(line)
+            r.font.size = Pt(9.5)
+            r.font.color.rgb = rgb(THEME["muted"])
 
-        p = c.paragraphs[0]
-        r = p.add_run(SHORT)
-        r.font.size, r.bold = Pt(54), True
-        r.font.color.rgb = rgb("FFFFFF")
-        r = p.add_run("  ●")
-        r.font.size = Pt(30)
-        r.font.color.rgb = rgb(THEME["accent"])
-        p = c.add_paragraph()
-        r = p.add_run(COMPANY.upper())
-        r.font.size, r.bold = Pt(11), True
-        r.font.color.rgb = rgb("BFD8E6")
-        rPr = r._r.get_or_add_rPr()
-        sp = OxmlElement("w:spacing")
-        sp.set(qn("w:val"), "40")
-        rPr.append(sp)
+        for _ in range(6):
+            d.add_paragraph()
 
-        for _ in range(7):
-            c.add_paragraph()
-        p = c.add_paragraph()
-        r = p.add_run(kicker.upper())
-        r.font.size, r.bold = Pt(11), True
-        r.font.color.rgb = rgb(THEME["accent"])
-        p = c.add_paragraph()
-        r = p.add_run(title)
-        r.font.size, r.bold = Pt(38), True
-        r.font.color.rgb = rgb("FFFFFF")
+        # orange pill kicker
+        pt = d.add_table(rows=1, cols=1)
+        no_borders(pt)
+        set_col_widths(pt, [6.2])
+        pc = pt.rows[0].cells[0]
+        shade(pc, THEME["warn_tint"])
+        cell_margins(pc, 60, 60, 180, 180)
+        r = pc.paragraphs[0].add_run(kicker)
+        r.bold, r.font.size = True, Pt(10.5)
+        r.font.color.rgb = rgb(THEME["orange_text"])
+        pc.paragraphs[0].paragraph_format.space_after = Pt(0)
+
+        p = d.add_paragraph()
+        p.paragraph_format.space_before = Pt(10)
         p.paragraph_format.line_spacing = 1.0
-        p = c.add_paragraph()
+        r = p.add_run(title)
+        r.bold, r.font.size = True, Pt(40)
+        r.font.color.rgb = rgb(THEME["primary"])
+        p = d.add_paragraph()
         r = p.add_run(subtitle)
         r.font.size = Pt(14)
-        r.font.color.rgb = rgb("D6E4EC")
-        for _ in range(6):
-            c.add_paragraph()
+        r.font.color.rgb = rgb(THEME["muted"])
 
-        # teal strip with what's inside
+        for _ in range(11):
+            d.add_paragraph()
+
+        # navy "inside this pack" panel, styled like the invoice's Amount Due box
         t2 = d.add_table(rows=1, cols=1)
         no_borders(t2)
-        c2 = t2.rows[0].cells[0]
         set_col_widths(t2, [17.0])
-        shade(c2, THEME["secondary"])
-        cell_margins(c2, 260, 260, 500, 500)
+        c2 = t2.rows[0].cells[0]
+        shade(c2, THEME["primary"])
+        cell_margins(c2, 300, 300, 400, 400)
         p = c2.paragraphs[0]
         r = p.add_run("INSIDE THIS PACK")
-        r.font.size, r.bold = Pt(10), True
-        r.font.color.rgb = rgb("FFFFFF")
+        r.font.size, r.bold = Pt(9), True
+        r.font.color.rgb = rgb("F3B37E")
+        rPr = r._r.get_or_add_rPr()
+        sp = OxmlElement("w:spacing")
+        sp.set(qn("w:val"), "30")
+        rPr.append(sp)
         p = c2.add_paragraph()
+        p.paragraph_format.space_after = Pt(0)
         r = p.add_run("   ·   ".join(bullets))
-        r.font.size = Pt(10.5)
+        r.font.size = Pt(11)
         r.font.color.rgb = rgb("FFFFFF")
 
         p = d.add_paragraph()
-        p.paragraph_format.space_before = Pt(14)
-        write_rich(p, VERSION + "  |  " + "[IWS ABN]" + "  |  " + "[IWS phone]" + "  |  " + "[IWS email]",
-                   size=9, color=THEME["muted"])
+        p.paragraph_format.space_before = Pt(16)
+        r = p.add_run(VERSION)
+        r.font.size = Pt(9)
+        r.font.color.rgb = rgb(THEME["muted"])
 
     def header_footer(self):
         sec = self.doc.sections[0]
-        hp = sec.header.paragraphs[0]
-        hp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        r = hp.add_run(f"{SHORT}  ")
+        hdr = sec.header
+        self.brand_bar(hdr, 3)
+        # logo + name on the left, pack title on the right
+        hdr._element.remove(hdr.paragraphs[0]._p)
+        ht = hdr.add_table(1, 2, Cm(17))
+        no_borders(ht)
+        set_col_widths(ht, [9.0, 8.0])
+        lc, rc = ht.rows[0].cells
+        for c in (lc, rc):
+            cell_margins(c, 100, 60, 0, 0)
+            c.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+            c.paragraphs[0].paragraph_format.space_after = Pt(0)
+        lp = lc.paragraphs[0]
+        lp.add_run().add_picture(str(LOGO), height=Cm(0.75))
+        r = lp.add_run("  " + COMPANY)
         r.bold = True
-        r.font.size = Pt(9)
+        r.font.size = Pt(9.5)
         r.font.color.rgb = rgb(THEME["primary"])
-        r = hp.add_run(f"{self.title}")
+        rp = rc.paragraphs[0]
+        rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        r = rp.add_run(self.title)
         r.font.size = Pt(9)
         r.font.color.rgb = rgb(THEME["muted"])
-        pPr = hp._p.get_or_add_pPr()
-        bdr = OxmlElement("w:pBdr")
-        b = OxmlElement("w:bottom")
-        b.set(qn("w:val"), "single")
-        b.set(qn("w:sz"), "8")
-        b.set(qn("w:color"), THEME["secondary"])
-        b.set(qn("w:space"), "4")
-        bdr.append(b)
-        pPr.append(bdr)
+        hdr.add_paragraph().paragraph_format.space_after = Pt(0)
 
         fp = sec.footer.paragraphs[0]
-        r = fp.add_run(f"{COMPANY}  |  {self.audience}  |  Page ")
-        r.font.size = Pt(8.5)
+        fp.paragraph_format.tab_stops.add_tab_stop(Cm(16.9), WD_TAB_ALIGNMENT.RIGHT)
+        r = fp.add_run(f"{COMPANY}  ·  ABN {ABN}  ·  {EMAIL}  ·  {PHONE}")
+        r.font.size = Pt(8)
         r.font.color.rgb = rgb(THEME["muted"])
+        r = fp.add_run("\tPage ")
+        r.font.size = Pt(8.5)
+        r.bold = True
+        r.font.color.rgb = rgb(THEME["orange_text"])
         r = fp.add_run()
         r.font.size = Pt(8.5)
-        r.font.color.rgb = rgb(THEME["muted"])
+        r.bold = True
+        r.font.color.rgb = rgb(THEME["orange_text"])
         add_field(r, "PAGE")
+        pPr = fp._p.get_or_add_pPr()
+        bdr = OxmlElement("w:pBdr")
+        bt = OxmlElement("w:top")
+        bt.set(qn("w:val"), "single")
+        bt.set(qn("w:sz"), "4")
+        bt.set(qn("w:color"), THEME["line"])
+        bt.set(qn("w:space"), "6")
+        bdr.append(bt)
+        pPr.append(bdr)
 
     # --- content blocks ---
     def h1(self, text, new_page=False):
@@ -321,7 +381,7 @@ class Pack:
         a, b = t.rows[0].cells
         shade(a, THEME["secondary"])
         shade(b, THEME["primary"])
-        cell_margins(a, 120, 120, 120, 120)
+        cell_margins(a, 120, 120, 120, 120)  # orange number, navy title, as on the invoice
         cell_margins(b, 120, 120, 220, 120)
         set_col_widths(t, [1.4, 15.6])
         pa = a.paragraphs[0]
@@ -387,7 +447,7 @@ class Pack:
 
     def callout(self, title, body, kind="info"):
         fill = THEME["tint"] if kind == "info" else THEME["warn_tint"]
-        bar = THEME["secondary"] if kind == "info" else THEME["accent"]
+        bar = THEME["primary"] if kind == "info" else THEME["secondary"]
         t = self.doc.add_table(rows=1, cols=1)
         no_borders(t)
         c = t.rows[0].cells[0]
@@ -475,7 +535,7 @@ def worker_pack():
     k.h1("Welcome to IWS", new_page=True)
     k.p("Hi [Worker first name],")
     k.p("Welcome to Interactive Workforce Solutions. You are joining a team that places skilled, "
-        "caring support workers with disability and community care providers across [service region, e.g. Greater Western Sydney]. "
+        "caring support workers with disability and community care providers across [service region, e.g. Sydney's Hills District and surrounds]. "
         "The people you support are at the centre of everything we do, and so are you. We want you to feel "
         "prepared, safe and backed up on every shift.")
     k.p("This pack explains how we work, what we expect, and what you can expect from us. Please read it "
@@ -507,7 +567,7 @@ def worker_pack():
     ], [4.0, 13.0])
 
     # 3 Engagement type
-    k.h1("Your engagement: casual employee or contractor", new_page=True)
+    k.h1("Your engagement: casual employee or contractor")
     k.p("IWS engages people in one of two ways. Your offer letter or agreement says which applies to you. "
         "The rules are different, so read the column that matches your engagement.")
     k.table(["Topic", "Casual employee", "ABN contractor"], [
@@ -557,7 +617,7 @@ def worker_pack():
               "matches the people you support.")
 
     # 5 Connecteam
-    k.h1("Connecteam: your work app", new_page=True)
+    k.h1("Connecteam: your work app")
     k.p("IWS uses **Connecteam** for rosters, clocking in and out, documents and messages. "
         "Download it from the App Store or Google Play and log in with the invite we send you.")
     k.steps([
@@ -597,7 +657,7 @@ def worker_pack():
               "been shown a plan, ask for it. If you are still unsure, call IWS.")
 
     # 7 Code of Conduct
-    k.h1("The NDIS Code of Conduct", new_page=True)
+    k.h1("The NDIS Code of Conduct")
     k.p("Every person delivering NDIS supports must follow the NDIS Code of Conduct. Breaches can lead to "
         "bans from working in the sector, fines and other penalties. In plain language, you must:")
     k.table(["#", "The rule", "What it means for you"], [
@@ -621,7 +681,7 @@ def worker_pack():
     ])
 
     # 8 Safety
-    k.h1("Working safely", new_page=True)
+    k.h1("Working safely")
     k.p("Under the NSW Work Health and Safety Act 2011, IWS and the customer both have a duty to keep you safe, "
         "and we work together on it. Your duties are to:")
     k.bullets([
@@ -670,7 +730,7 @@ def worker_pack():
     ])
 
     # 10 Pay
-    k.h1("Pay, invoices and shifts", new_page=True)
+    k.h1("Pay, invoices and shifts")
     k.table(["", "Casual employees", "Contractors"], [
         ["How hours are recorded", "Connecteam clock-in and clock-out", "Connecteam clock-in and clock-out"],
         ["Pay or invoice cycle", "[Weekly / fortnightly], period ends [day]", "Invoice IWS [weekly / fortnightly] for approved hours"],
@@ -702,7 +762,7 @@ def worker_pack():
     k.p("We want to hear about anything that worries you: about a site, a customer, a colleague, or IWS itself.")
     k.steps([
         "Talk to the IWS coordinator or on-call person.",
-        "If not resolved, email the Director at [IWS complaints email].",
+        "If not resolved, email the Director at michael.sibanda@interactivews.com.",
         "You can also contact the **NDIS Quality and Safeguards Commission** on **1800 035 544** or at ndiscommission.gov.au.",
     ])
     k.p("You will not be treated unfairly for raising a concern in good faith. "
@@ -716,13 +776,13 @@ def worker_pack():
     k.table(["Who", "When to contact", "Details"], [
         ["Emergency", "Life-threatening situation, fire, crime in progress", "**000**"],
         ["IWS on-call", "During any shift: incidents, sick calls, running late, any worry", "[On-call phone, hours]"],
-        ["IWS office", "Rosters, documents, general questions", "[Office phone]  |  [Office email]"],
-        ["Pay and invoices", "Pay queries, invoices, super", "[Payroll email]"],
-        ["Director", "Complaints or anything not resolved", "Michael Sibanda  |  [Director email]"],
+        ["IWS office", "Rosters, documents, general questions", "+61 493 716 007\nmichael.sibanda@interactivews.com"],
+        ["Pay and invoices", "Pay queries, invoices, super", "michael.sibanda@interactivews.com"],
+        ["Director", "Complaints or anything not resolved", "Michael Sibanda\nmichael.sibanda@interactivews.com"],
         ["NDIS Commission", "Complaints and concerns about NDIS supports", "1800 035 544  |  ndiscommission.gov.au"],
         ["Fair Work Ombudsman", "Pay and workplace rights", "13 13 94  |  fairwork.gov.au"],
         ["SafeWork NSW", "Workplace safety advice", "13 10 50  |  safework.nsw.gov.au"],
-    ], [3.6, 7.4, 6.0])
+    ], [3.2, 6.0, 7.8])
     k.callout("Save these two numbers now",
               "**IWS on-call:** [On-call phone]      **Emergency:** 000")
 
@@ -808,7 +868,7 @@ def customer_pack():
 
     k.h1("Booking shifts")
     k.h2("How to request a worker")
-    k.p("Book by [phone / email / booking form] at [booking contact]. For each shift, please give us:")
+    k.p("Book by phone on **+61 493 716 007** or email **michael.sibanda@interactivews.com**. For each shift, please give us:")
     k.checklist([
         "Site name and address, and parking or entry instructions",
         "Date, start and finish times, and shift type (e.g. active night or sleepover)",
@@ -865,16 +925,17 @@ def customer_pack():
         "if you'd like to request a regular worker, so participants get consistent support",
     ])
 
-    k.h1("Rates, timesheets and invoices", new_page=True)
+    k.h1("Rates, timesheets and invoices")
     k.table(["Item", "How it works"], [
-        ["Rates", "As set out in your rate schedule. Separate rates apply for weekday, evening, night, Saturday, Sunday and public holiday shifts, and for sleepovers. [Attach rate schedule]"],
+        ["Rates", "Hourly rates by shift type (for example Weekday AM, Weekday PM, night, Saturday, Sunday, public holiday and sleepover), as set out in your rate schedule. [Attach rate schedule]"],
         ["Minimum shift", "[e.g. 2 hours] per worker per shift"],
         ["Hours charged", "Based on the worker's clock-in and clock-out records, as confirmed by your shift lead"],
         ["Overtime and extensions", "Shifts extended at your request are charged at the applicable rate. Please tell IWS of any extension."],
         ["Travel and kilometres", "[If charged: rate per km for participant transport, per your rate schedule]"],
-        ["Invoice cycle", "[Weekly / fortnightly], with a shift-by-shift breakdown"],
+        ["Invoice cycle", "Weekly, per site, with a line for every shift: date, worker, shift type, rate and hours. Hours found after a week is invoiced (for example a shift that ran past its rostered finish) are billed on a supplementary invoice at the standard rate."],
         ["Payment terms", "[e.g. 14 days] from invoice date"],
-        ["GST", "[State whether GST applies to IWS services. Confirm with your accountant.]"],
+        ["GST", "IWS is registered for GST. Rates are quoted excluding GST, and 10% GST is added on each tax invoice."],
+        ["How to pay", "By EFT to the account shown on each invoice. Please use the invoice number as the payment reference."],
         ["Invoice disputes", "Raise within [7 days] of the invoice. Undisputed amounts remain payable on time."],
     ], [4.2, 12.8])
     k.h2("Cancellations")
@@ -900,21 +961,21 @@ def customer_pack():
     k.p("We want to know what's working and what isn't. Feedback helps us place the right workers with you.")
     k.steps([
         "Call or email your IWS coordinator. Most issues are fixed on the same day.",
-        "If not resolved, contact the Director at [IWS complaints email]. We will acknowledge within [2 business days] and aim to resolve within [X business days].",
+        "If not resolved, contact the Director at michael.sibanda@interactivews.com. We will acknowledge within [2 business days] and aim to resolve within [X business days].",
         "Participants and families can also contact the **NDIS Quality and Safeguards Commission** on **1800 035 544**.",
     ])
 
     k.h1("Key contacts")
     k.table(["Who", "When to contact", "Details"], [
         ["IWS on-call", "Urgent cover, incidents, worker running late or unwell", "[On-call phone, hours]"],
-        ["Bookings and rosters", "New bookings, changes, regular worker requests", "[Bookings phone]  |  [Bookings email]"],
-        ["Accounts", "Invoices, rates, payment queries", "[Accounts email]"],
-        ["Director", "Service agreement, escalations and complaints", "Michael Sibanda  |  [Director email]"],
+        ["Bookings and rosters", "New bookings, changes, regular worker requests", "+61 493 716 007\nmichael.sibanda@interactivews.com"],
+        ["Accounts", "Invoices, rates, payment queries", "michael.sibanda@interactivews.com"],
+        ["Director", "Service agreement, escalations and complaints", "Michael Sibanda\nmichael.sibanda@interactivews.com"],
         ["NDIS Commission", "Complaints and concerns about NDIS supports", "1800 035 544  |  ndiscommission.gov.au"],
-    ], [3.6, 7.4, 6.0])
+    ], [3.2, 6.0, 7.8])
 
     k.h1("Getting started checklist", new_page=True)
-    k.p("To set up your account, please complete and return the following to [IWS email]:")
+    k.p("To set up your account, please complete and return the following to **michael.sibanda@interactivews.com**:")
     k.checklist([
         "Signed service agreement and rate schedule",
         "Accounts contact and invoicing email address",
